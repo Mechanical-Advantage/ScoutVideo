@@ -1,0 +1,66 @@
+table {
+    border-collapse: collapse;
+}
+
+tr {
+    height: 32px;
+}
+
+th {
+    padding: 6px;
+    text-align: center;
+    font-weight: bold;
+}
+
+td {
+    padding: 6px;
+}
+
+td.data {
+    border: 1px solid black;
+}
+
+td.red {
+    background-color: #ff6e6e;
+}
+
+td.blue {
+    background-color: #87c3ff;
+}
+
+button {
+    font-size: 20px;
+    width: 45px;
+}
+
+div.loading {
+    overflow: hidden;
+    height: 32px;
+    width: 32px;
+}
+
+img.loading {
+    position: relative;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    height: 70px;
+}
+
+div.camera-view {
+    position: fixed;
+    width: 600px;
+    right: 10px;
+    top: 10px;
+    bottom: 10px;
+    text-align: center;
+}
+
+img.frame {
+    width: 100%;
+}
+
+div.time {
+    margin-top: 10px;
+    font-size: 40px;
+}

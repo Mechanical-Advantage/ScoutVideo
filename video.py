@@ -12,9 +12,9 @@ class VideoRecorder():
         self.open = False
         self.device_index = 1
         # fps should be the minimum constant rate at which the camera can capture images (with no decrease in speed over time; testing is required)
-        self.fps = 20
+        self.fps = 24
         self.fourcc = "MJPG"
-        self.frameSize = (704, 480)
+        self.frameSize = (1600, 1200)
         self.video_filename = ""
         self.video_cap = cv2.VideoCapture(self.device_index)
         self.start_time = None
@@ -68,7 +68,8 @@ class VideoRecorder():
 def encode_output(frame_count, start_time, stop_time, fps, input, output):
     elapsed_time = stop_time - start_time
     recorded_fps = frame_count / elapsed_time
-    cmd = "/Users/jonah/Documents/ScoutVideo/ffmpeg -r " + str(recorded_fps) + \
+    print(recorded_fps)
+    cmd = "ffmpeg -r " + str(recorded_fps) + \
         " -i " + input + " -r " + \
         str(fps) + " -vcodec libx264 -crf 24 " + output
     subprocess.call(cmd, shell=True, stderr=subprocess.DEVNULL,
@@ -79,8 +80,8 @@ def encode_output(frame_count, start_time, stop_time, fps, input, output):
 if __name__ == "__main__":
     recorder = VideoRecorder()
     recorder.start()
-    # input("Press enter to stop recording")
-    time.sleep(30)
+    input("Press enter to stop recording")
+    # time.sleep(30)
     recorder.stop()
     print("Recorded fps:", recorder.frame_counts /
           (recorder.end_time - recorder.start_time))
