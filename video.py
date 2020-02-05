@@ -9,35 +9,40 @@ class VideoRecorder():
     # Video class based on openCV
     def __init__(self):
 
-        self.open = True
-        self.device_index = 0
+        self.open = False
+        self.device_index = 1
         # fps should be the minimum constant rate at which the camera can capture images (with no decrease in speed over time; testing is required)
         self.fps = 20
         self.fourcc = "MJPG"
-        self.frameSize = (640, 480)
-        self.video_filename = "temp_" + \
-            time.strftime("%Y-%m-%d_%H-%M-%S") + ".avi"
+        self.frameSize = (704, 480)
+        self.video_filename = ""
         self.video_cap = cv2.VideoCapture(self.device_index)
-        self.video_writer = cv2.VideoWriter_fourcc(*self.fourcc)
-        self.video_out = cv2.VideoWriter(
-            self.video_filename, self.video_writer, self.fps, self.frameSize)
-        self.frame_counts = 1
-        self.start_time = time.time()
+        self.start_time = None
+        self.end_time = None
+
+    # Save a single frame to the file
+    def save_frame(self):
+        ret, video_frame = self.video_cap.read()
+        if ret:
+            cv2.imwrite("frame.jpg", video_frame)
 
     # Video starts being recorded
     def record(self):
+        self.open = True
+        self.video_writer = cv2.VideoWriter_fourcc(*self.fourcc)
+        self.video_filename = "temp_" + \
+            time.strftime("%Y-%m-%d_%H-%M-%S") + ".avi"
+        self.video_out = cv2.VideoWriter(
+            self.video_filename, self.video_writer, self.fps, self.frameSize)
+        self.start_time = time.time()
+        self.frame_counts = 1
 
-        timer_start = time.time()
-        timer_current = 0
-
-        while(self.open == True):
+        while self.open:
             ret, video_frame = self.video_cap.read()
-            if (ret == True):
+            if ret:
 
                 self.video_out.write(video_frame)
                 self.frame_counts += 1
-                # time.sleep(1 / self.fps)
-                # cv2.imshow("Video Frame", video_frame)
                 if self.frame_counts % 5 == 0:
                     cv2.imwrite("frame.jpg", video_frame)
                 cv2.waitKey(1)
@@ -46,15 +51,12 @@ class VideoRecorder():
 
     # Finishes the video recording therefore the thread too
     def stop(self):
-
-        if self.open == True:
+        if self.open:
             self.open = False
+            self.end_time = time.time()
+            time.sleep(0.5)
             self.video_out.release()
-            self.video_cap.release()
             cv2.destroyAllWindows()
-
-        else:
-            pass
 
     # Launches the video recording function using a thread
     def start(self):
@@ -66,10 +68,10 @@ class VideoRecorder():
 def encode_output(frame_count, start_time, stop_time, fps, input, output):
     elapsed_time = stop_time - start_time
     recorded_fps = frame_count / elapsed_time
-    cmd = "ffmpeg -r " + str(fps) + \
+    cmd = "/Users/jonah/Documents/ScoutVideo/ffmpeg -r " + str(recorded_fps) + \
         " -i " + input + " -r " + \
         str(fps) + " -vcodec libx264 -crf 24 " + output
-    subprocess.call(cmd, shell=False, stderr=subprocess.DEVNULL,
+    subprocess.call(cmd, shell=True, stderr=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL)
     os.remove(input)
 
@@ -77,9 +79,13 @@ def encode_output(frame_count, start_time, stop_time, fps, input, output):
 if __name__ == "__main__":
     recorder = VideoRecorder()
     recorder.start()
-    input("Press enter to stop recording")
+    # input("Press enter to stop recording")
+    time.sleep(30)
     recorder.stop()
+    print("Recorded fps:", recorder.frame_counts /
+          (recorder.end_time - recorder.start_time))
 
     print("Encoding video")
-    encode_output(recorder, "test.mp4")
+    encode_output(recorder.frame_counts, recorder.start_time,
+                  recorder.end_time, recorder.fps, recorder.video_filename, "test.mp4")
     print("Done")

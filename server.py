@@ -5,7 +5,7 @@ import threading
 from multiprocessing import Process
 import time
 
-recorder_created = False
+recorder = video.VideoRecorder()
 
 
 class main_server(object):
@@ -37,6 +37,9 @@ class main_server(object):
 <button onclick="send(&quot;stop&quot;)">
     Stop Recording
 </button>
+<button onclick="send(&quot;save_frame&quot;)">
+    Save Frame
+</button>
 <br>
 <img src="frame.jpg" id="image">
 
@@ -44,28 +47,22 @@ class main_server(object):
         """
 
     @cherrypy.expose
+    def save_frame():
+        recorder.save_frame()
+
+    @cherrypy.expose
     def start():
-        global recorder
-        global recorder_created
-        if not recorder_created:
-            recorder = video.VideoRecorder()
-            recorder_created = True
-        else:
-            if recorder.open:
-                recorder.stop()
-            recorder = video.VideoRecorder()
+        if recorder.open:
+            recorder.stop()
         recorder.start()
 
     @cherrypy.expose
     def stop():
-        global recorder
-        global recorder_created
-        if recorder_created:
-            if recorder.open:
-                recorder.stop()
-                encode_thread = Process(
-                    target=video.encode_output, args=(recorder.frame_counts, recorder.start_time, time.time(), recorder.fps, recorder.video_filename, "test.mp4"))
-                encode_thread.start()
+        if recorder.open:
+            recorder.stop()
+            encode_thread = Process(
+                target=video.encode_output, args=(recorder.frame_counts, recorder.start_time, time.time(), recorder.fps, recorder.video_filename, "test.mp4"))
+            encode_thread.start()
 
 
 if __name__ == "__main__":
