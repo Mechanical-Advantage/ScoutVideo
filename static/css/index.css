@@ -28,7 +28,7 @@ td.blue {
     background-color: #87c3ff;
 }
 
-button {
+button.emoji {
     font-size: 20px;
     width: 45px;
 }
