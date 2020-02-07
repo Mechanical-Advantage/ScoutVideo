@@ -1,5 +1,9 @@
 // Setup
-recording = false
+var recording = false
+var startTime = 0
+var flashesDone = 0
+const flashTime = 180 // seconds
+const flashRate = 20 // seconds
 
 function request(method, url, response, data, error) {
     if (data == undefined) {
@@ -122,6 +126,7 @@ function getMatches() {
             } else if (matches[i]["status"] == "recording") {
                 buttonCell.children[1].hidden = false
                 recording = true
+                flashesDone = 0
             } else if (matches[i]["status"] == "encoding") {
                 buttonCell.lastChild.hidden = false
             } else if (matches[i]["status"] == "finished") {
@@ -157,17 +162,28 @@ function startRecording(match) {
         matches[match - 1]["row"].lastChild.firstChild.hidden = true
         matches[match - 1]["row"].lastChild.children[1].hidden = false
         recording = true
-        // Tell the server to start recording
+        flashesDone = 0
+        startTime = new Date().getTime()
+        request("POST", "/start_recording", function () { }, {
+            match: match
+        }, "Failed to contact server")
     }
 }
+
 
 // Stop recording
 function stopRecording(match, save) {
     if (confirm(save ? "Are you sure you want to stop recording?" : "Are you sure you want to cancel recording? It will be lost forever.")) {
         matches[match - 1]["row"].lastChild.children[1].hidden = true
-        matches[match - 1]["row"].lastChild.lastChild.hidden = false
+        if (save) {
+            matches[match - 1]["row"].lastChild.lastChild.hidden = false
+        } else {
+            matches[match - 1]["row"].lastChild.firstChild.hidden = false
+        }
         recording = false
-        // Tell the server to stop recording
+        request("POST", "/stop_recording", function () { }, {
+            save: save ? "1" : "0"
+        }, "Failed to contact server")
     }
 }
 
@@ -175,3 +191,56 @@ function stopRecording(match, save) {
 setInterval(function () {
     document.getElementById("frame").src = "frame.jpg?time=" + new Date().getTime().toString()
 }, 250)
+
+// Manager web socket
+function createSocket() {
+    var socket = new WebSocket("ws://" + window.location.hostname + ":8081")
+    socket.onmessage = function (event) {
+        match = Number(event.data)
+        matches[match - 1]["row"].lastChild.lastChild.hidden = true
+        matches[match - 1]["row"].lastChild.firstChild.lastChild.hidden = false
+        matches[match - 1]["row"].lastChild.firstChild.hidden = false
+    }
+    socket.onclose = createSocket
+}
+createSocket()
+
+// Manager timer
+setInterval(function () {
+    var time = document.getElementById("time")
+    time.hidden = !recording
+
+    if (recording) {
+        var elapsed = new Date().getTime() - startTime
+        var hours = Math.floor(elapsed / 3600000)
+        var remaining = elapsed % 3600000
+        var minutes = Math.floor(remaining / 60000)
+        remaining = remaining % 60000
+        var seconds = Math.floor(remaining / 1000)
+        var tenths = Math.floor((remaining % 1000) / 100)
+
+        time.innerHTML = hours.toString().padStart(2, "0") + ":" + minutes.toString().padStart(2, "0") + ":" + seconds.toString().padStart(2, "0") + "." + tenths.toString()
+
+        var currentFlash = Math.floor((elapsed - (flashTime * 1000)) / (flashRate * 1000)) + 1
+        if (currentFlash > flashesDone) {
+            flashesDone = currentFlash
+            flash(3)
+        }
+    }
+}, 100)
+
+// Flash screen when recording for too long
+function flash(times) {
+    var flashBox = document.getElementById("flashBox")
+    flashBox.classList.remove("fade-out")
+    flashBox.style.opacity = 1
+    setTimeout(function () {
+        flashBox.classList.add("fade-out")
+        flashBox.style.opacity = 0
+        if (times > 1) {
+            setTimeout(function () {
+                flash(times - 1)
+            }, 400)
+        }
+    }, 100)
+}

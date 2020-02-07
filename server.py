@@ -1,5 +1,6 @@
 import video
 import cherrypy
+from simple_websocket_server import WebSocketServer, WebSocket
 import sqlite3 as sql
 import tbapy
 import json
@@ -11,6 +12,7 @@ import os
 
 # Config
 port = 8080
+socket_port = 8081
 host = "0.0.0.0"
 db_path = "videos.db"
 video_dir = "videos"
@@ -65,7 +67,8 @@ if not Path(db_path).is_file():
 
 # Encoder thread
 def encode_thread(frame_count, start_time, stop_time, fps, input, event, match):
-    filename = video_dir + os.path.sep + event + "_m" + str(match) + ".mp4"
+    filename = video_dir + os.path.sep + event + \
+        "_m" + str(match).zfill(3) + ".mp4"
     if Path(filename).is_file():
         os.remove(filename)
     video.encode_output(frame_count, start_time,
@@ -76,6 +79,7 @@ def encode_thread(frame_count, start_time, stop_time, fps, input, event, match):
         "UPDATE videos SET filename=?, encoded=1 WHERE event=? AND match=?", (filename, event, match))
     conn.commit()
     conn.close()
+    send_complete(match)
 
 
 class main_server(object):
@@ -94,10 +98,12 @@ class main_server(object):
 </head>
 
 <body>
+    <div class="flash-box fade-out" id="flashBox"></div>
+
     <div class="camera-view">
         <img class="frame" src="frame.jpg" id="frame">
-        <div class="time" hidden>
-            00:00:00.000
+        <div class="time" id="time">
+            00:00:00.0
         </div>
     </div>
  
@@ -156,27 +162,28 @@ class main_server(object):
         return
 
     @cherrypy.expose
-    def stop_recording(save=1):
-        conn = sql.connect(db_path)
-        cur = conn.cursor()
-        match = cur.execute(
-            "SELECT value FROM config WHERE key='recording'").fetchall()[0][0]
-        event = cur.execute(
-            "SELECT value FROM config WHERE key='event'").fetchall()[0][0]
-        teams = cur.execute(
-            "SELECT b1,b2,b3,r1,r2,r3 FROM schedule WHERE match=?", (match,)).fetchall()[0]
-        cur.execute("UPDATE config SET value=0 WHERE key='recording'")
-        cur.execute("INSERT INTO videos(event,match,encoded,b1,b2,b3,r1,r2,r3) VALUES (?,?,?,?,?,?,?,?,?)",
-                    (event, match, 0) + tuple(teams))
-        conn.commit()
-        conn.close()
-
+    def stop_recording(save="1"):
         if recorder.open:
             recorder.stop()
 
-            if save == 0:
+            conn = sql.connect(db_path)
+            cur = conn.cursor()
+            match = cur.execute(
+                "SELECT value FROM config WHERE key='recording'").fetchall()[0][0]
+            event = cur.execute(
+                "SELECT value FROM config WHERE key='event'").fetchall()[0][0]
+            teams = cur.execute(
+                "SELECT b1,b2,b3,r1,r2,r3 FROM schedule WHERE match=?", (match,)).fetchall()[0]
+            cur.execute("UPDATE config SET value=0 WHERE key='recording'")
+
+            if save == "0":
                 os.remove(recorder.video_filename)
             else:
+                cur.execute(
+                    "DELETE FROM videos WHERE match=? AND event=?", (match, event))
+                cur.execute("INSERT INTO videos(event,match,encoded,b1,b2,b3,r1,r2,r3) VALUES (?,?,?,?,?,?,?,?,?)",
+                            (event, match, 0) + tuple(teams))
+
                 # Start encoding
                 thread = threading.Thread(target=encode_thread, args=(
                     recorder.frame_counts,
@@ -188,6 +195,9 @@ class main_server(object):
                     match
                 ))
                 thread.start()
+
+            conn.commit()
+            conn.close()
         return
 
     @cherrypy.expose
@@ -281,12 +291,46 @@ class main_server(object):
         return json.dumps(matches)
 
 
+# Finish web socket server
+clients = []
+
+
+def send_complete(match):
+    for client in clients:
+        client.send_message(str(match))
+        cherrypy.log("Sent data '" + str(match) +
+                     "' to " + client.address[0])
+
+
+class finish_server(WebSocket):
+    global clients
+
+    def handle(self):
+        cherrypy.log("Received data '" + self.data +
+                     "' from " + self.address[0])
+
+    def connected(self):
+        cherrypy.log("Socket opened from " + self.address[0])
+        clients.append(self)
+
+    def handle_close(self):
+        cherrypy.log("Socket closed to " + self.address[0])
+        clients.remove(self)
+
+
+def run_socket_server():
+    server = WebSocketServer(host, socket_port, finish_server)
+    cherrypy.log("Starting web socket server on ws://" +
+                 host + ":" + str(socket_port))
+    server.serve_forever()
+    cherrypy.log("Stopping web socket server on ws://" +
+                 host + ":" + str(socket_port))
+
+
 if __name__ == "__main__":
+    server_thread = threading.Thread(target=run_socket_server, daemon=True)
+    server_thread.start()
     cherrypy.config.update(
         {'server.socket_port': port, 'server.socket_host': host})
     cherrypy.quickstart(main_server, "/", {"/frame.jpg": {
                         "tools.staticfile.on": True, "tools.staticfile.filename": os.getcwd() + "/frame.jpg"}, "/static": {"tools.staticdir.on": True, "tools.staticdir.dir": os.getcwd() + "/static"}})
-
-# encode_thread = Process(
-#     target=video.encode_output, args=(recorder.frame_counts, recorder.start_time, time.time(), recorder.fps, recorder.video_filename, "test.mp4"))
-# encode_thread.start()

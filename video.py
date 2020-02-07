@@ -11,9 +11,9 @@ class VideoRecorder():
         self.open = False
         self.device_index = 1
         # fps should be the minimum constant rate at which the camera can capture images (with no decrease in speed over time; testing is required)
-        self.fps = 60
-        self.fourcc = "MJPG"
-        self.frameSize = (1280, 720)
+        self.fps = 30
+        self.fourcc = "XVID"
+        self.frameSize = (1920, 1080)
         self.video_filename = ""
         self.video_cap = cv2.VideoCapture(self.device_index)
         # self.video_cap.set(6, self.fourcc)
@@ -46,7 +46,7 @@ class VideoRecorder():
         self.open = True
         self.video_writer = cv2.VideoWriter_fourcc(*self.fourcc)
         self.video_filename = "temp_" + \
-            time.strftime("%Y-%m-%d_%H-%M-%S") + ".avi"
+            time.strftime("%Y-%m-%d_%H-%M-%S") + ".mp4"
         self.video_out = cv2.VideoWriter(
             self.video_filename, self.video_writer, self.fps, self.frameSize)
         self.start_time = time.time()

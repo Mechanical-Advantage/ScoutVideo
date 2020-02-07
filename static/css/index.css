@@ -64,3 +64,22 @@ div.time {
     margin-top: 10px;
     font-size: 40px;
 }
+
+div.flash-box {
+    position: fixed;
+    top: 0px;
+    left: 0px;
+    height: 100%;
+    width: 100%;
+    z-index: 1;
+    pointer-events: none;
+    background: red;
+    opacity: 0;
+}
+
+div.fade-out {
+    -webkit-transition: opacity 0.5s ease-in-out;
+	-moz-transition: opacity 0.5s ease-in-out;
+	-o-transition: opacity 0.5s ease-in-out;
+	transition: opacity 0.5s ease-in-out;
+}
