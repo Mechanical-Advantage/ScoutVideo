@@ -1,0 +1,1 @@
+ gst-launch-1.0 -e v4l2src device=/dev/video1 ! 'video/x-raw,width=1920,height=1080' ! videoconvert ! queue ! omxh264enc ! h264parse ! mp4mux ! filesink location=test.mp4
