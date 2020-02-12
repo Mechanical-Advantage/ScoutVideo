@@ -1,18 +1,15 @@
-import video
+import gstreamer
 import cherrypy
-from simple_websocket_server import WebSocketServer, WebSocket
 import sqlite3 as sql
 import tbapy
 import json
 import threading
-from multiprocessing import Process
 from pathlib import Path
 import time
 import os
 
 # Config
 port = 8080
-socket_port = 8081
 host = "0.0.0.0"
 db_path = "videos.db"
 video_dir = "videos"
@@ -21,7 +18,8 @@ tba = tbapy.TBA(
     "dfdifQQrVJfI7uRVhJzN21tEmB3zCne9CGHORrvz2M5jb5Gz53rUeCdpqCjz372N")
 
 # Init recorder
-recorder = video.VideoRecorder(start_thread=True)
+recorder = gstreamer.GstreamerRecorder()
+recorder.start(gstreamer.RecorderMode.IDLE)
 
 # Create folder
 if not os.path.exists(video_dir):
@@ -36,7 +34,7 @@ if not Path(db_path).is_file():
         event TEXT,
         match INTEGER,
         filename TEXT,
-        encoded INTEGER,
+        saved INTEGER,
         b1 INTEGER,
         b2 INTEGER,
         b3 INTEGER,
@@ -63,23 +61,6 @@ if not Path(db_path).is_file():
     cur.execute("INSERT INTO config (key, value) VALUES ('recording', '0')")
     conn.commit()
     conn.close()
-
-
-# Encoder thread
-def encode_thread(frame_count, start_time, stop_time, fps, input, event, match):
-    filename = video_dir + os.path.sep + event + \
-        "_m" + str(match).zfill(3) + ".mp4"
-    if Path(filename).is_file():
-        os.remove(filename)
-    video.encode_output(frame_count, start_time,
-                        stop_time, fps, input, filename)
-    conn = sql.connect(db_path)
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE videos SET filename=?, encoded=1 WHERE event=? AND match=?", (filename, event, match))
-    conn.commit()
-    conn.close()
-    send_complete(match)
 
 
 class main_server(object):
@@ -156,48 +137,41 @@ class main_server(object):
         conn.commit()
         conn.close()
 
-        if recorder.open:
-            recorder.stop()
-        recorder.start()
+        recorder.start(gstreamer.RecorderMode.RECORD, "temp_" +
+                       time.strftime("%Y-%m-%d_%H-%M-%S") + ".mp4")
         return
 
     @cherrypy.expose
     def stop_recording(save="1"):
-        if recorder.open:
-            recorder.stop()
+        recorder.start(gstreamer.RecorderMode.IDLE)
 
-            conn = sql.connect(db_path)
-            cur = conn.cursor()
-            match = cur.execute(
-                "SELECT value FROM config WHERE key='recording'").fetchall()[0][0]
-            event = cur.execute(
-                "SELECT value FROM config WHERE key='event'").fetchall()[0][0]
-            teams = cur.execute(
-                "SELECT b1,b2,b3,r1,r2,r3 FROM schedule WHERE match=?", (match,)).fetchall()[0]
-            cur.execute("UPDATE config SET value=0 WHERE key='recording'")
+        conn = sql.connect(db_path)
+        cur = conn.cursor()
+        match = cur.execute(
+            "SELECT value FROM config WHERE key='recording'").fetchall()[0][0]
+        event = cur.execute(
+            "SELECT value FROM config WHERE key='event'").fetchall()[0][0]
+        teams = cur.execute(
+            "SELECT b1,b2,b3,r1,r2,r3 FROM schedule WHERE match=?", (match,)).fetchall()[0]
+        cur.execute("UPDATE config SET value=0 WHERE key='recording'")
 
-            if save == "0":
-                os.remove(recorder.video_filename)
-            else:
-                cur.execute(
-                    "DELETE FROM videos WHERE match=? AND event=?", (match, event))
-                cur.execute("INSERT INTO videos(event,match,encoded,b1,b2,b3,r1,r2,r3) VALUES (?,?,?,?,?,?,?,?,?)",
-                            (event, match, 0) + tuple(teams))
+        if save == "0":
+            os.remove(recorder.get_filename())
+        else:
+            cur.execute(
+                "DELETE FROM videos WHERE match=? AND event=?", (match, event))
+            cur.execute("INSERT INTO videos(event,match,saved,b1,b2,b3,r1,r2,r3) VALUES (?,?,?,?,?,?,?,?,?)",
+                        (event, match, 0) + tuple(teams))
 
-                # Start encoding
-                thread = threading.Thread(target=encode_thread, args=(
-                    recorder.frame_counts,
-                    recorder.start_time,
-                    recorder.end_time,
-                    recorder.fps,
-                    recorder.video_filename,
-                    event,
-                    match
-                ))
-                thread.start()
+            destination = video_dir + os.path.sep + event + \
+                "_m" + str(match).zfill(3) + ".mp4"
+            os.replace(recorder.get_filename(), destination)
 
-            conn.commit()
-            conn.close()
+            cur.execute(
+                "UPDATE videos SET filename=?, saved=1 WHERE event=? AND match=?", (filename, event, match))
+
+        conn.commit()
+        conn.close()
         return
 
     @cherrypy.expose
@@ -273,14 +247,14 @@ class main_server(object):
 
         for i in range(len(matches)):
             video_rows = cur.execute(
-                "SELECT encoded FROM videos WHERE event=? AND match=?", (event, matches[i]["match"])).fetchall()
+                "SELECT saved FROM videos WHERE event=? AND match=?", (event, matches[i]["match"])).fetchall()
             if len(video_rows) < 1:
                 matches[i]["status"] = "waiting"
             else:
                 if video_rows[0][0] == 1:
                     matches[i]["status"] = "finished"
                 else:
-                    matches[i]["status"] = "encoding"
+                    matches[i]["status"] = "error"
 
         recording = int(cur.execute(
             "SELECT value FROM config WHERE key='recording'").fetchall()[0][0])
@@ -379,7 +353,7 @@ class main_server(object):
         if team == "0":
             team = "%"
         data = cur.execute(
-            "SELECT * FROM videos WHERE event LIKE ? AND encoded=1 AND (b1 LIKE ? OR b2 LIKE ? OR b3 LIKE ? OR r1 LIKE ? OR r2 LIKE ? OR r3 LIKE ?) ORDER BY event, match", (event, team, team, team, team, team, team)).fetchall()
+            "SELECT * FROM videos WHERE event LIKE ? AND saved=1 AND (b1 LIKE ? OR b2 LIKE ? OR b3 LIKE ? OR r1 LIKE ? OR r2 LIKE ? OR r3 LIKE ?) ORDER BY event, match", (event, team, team, team, team, team, team)).fetchall()
         data = [{
             "event": x[0],
             "match": x[1],
@@ -396,45 +370,7 @@ class main_server(object):
         return json.dumps(data)
 
 
-# Finish web socket server
-clients = []
-
-
-def send_complete(match):
-    for client in clients:
-        client.send_message(str(match))
-        cherrypy.log("Sent data '" + str(match) +
-                     "' to " + client.address[0])
-
-
-class finish_server(WebSocket):
-    global clients
-
-    def handle(self):
-        cherrypy.log("Received data '" + self.data +
-                     "' from " + self.address[0])
-
-    def connected(self):
-        cherrypy.log("Socket opened from " + self.address[0])
-        clients.append(self)
-
-    def handle_close(self):
-        cherrypy.log("Socket closed to " + self.address[0])
-        clients.remove(self)
-
-
-def run_socket_server():
-    server = WebSocketServer(host, socket_port, finish_server)
-    cherrypy.log("Starting web socket server on ws://" +
-                 host + ":" + str(socket_port))
-    server.serve_forever()
-    cherrypy.log("Stopping web socket server on ws://" +
-                 host + ":" + str(socket_port))
-
-
 if __name__ == "__main__":
-    server_thread = threading.Thread(target=run_socket_server, daemon=True)
-    server_thread.start()
     cherrypy.config.update(
         {'server.socket_port': port, 'server.socket_host': host})
     cherrypy.quickstart(main_server, "/", {"/frame.jpg": {

@@ -111,14 +111,6 @@ function getMatches() {
             buttonCell.lastChild.lastChild.onclick = stopFunc(matches[i]["match"], false)
             buttonCell.lastChild.lastChild.classList.add("emoji")
 
-            // Loading symbol
-            buttonCell.appendChild(document.createElement("DIV"))
-            buttonCell.lastChild.hidden = true
-            buttonCell.lastChild.classList.add("loading")
-            buttonCell.lastChild.appendChild(document.createElement("IMG"))
-            buttonCell.lastChild.firstChild.classList.add("loading")
-            buttonCell.lastChild.firstChild.src = "/static/img/loading.gif"
-
             // Show the correct buttons
             if (matches[i]["status"] == "waiting") {
                 buttonCell.firstChild.hidden = false
@@ -159,12 +151,13 @@ function startRecording(match) {
     if (recording) {
         alert("You cannot record multiple matches at once.")
     } else {
-        matches[match - 1]["row"].lastChild.firstChild.hidden = true
-        matches[match - 1]["row"].lastChild.children[1].hidden = false
-        recording = true
-        flashesDone = 0
-        startTime = new Date().getTime()
-        request("POST", "/start_recording", function () { }, {
+        request("POST", "/start_recording", function () {
+            recording = true
+            matches[match - 1]["row"].lastChild.firstChild.hidden = true
+            matches[match - 1]["row"].lastChild.children[1].hidden = false
+            flashesDone = 0
+            startTime = new Date().getTime()
+        }, {
             match: match
         }, "Failed to contact server")
     }
@@ -174,14 +167,15 @@ function startRecording(match) {
 // Stop recording
 function stopRecording(match, save) {
     if (confirm(save ? "Are you sure you want to stop recording?" : "Are you sure you want to cancel recording? It will be lost forever.")) {
-        matches[match - 1]["row"].lastChild.children[1].hidden = true
-        if (save) {
-            matches[match - 1]["row"].lastChild.lastChild.hidden = false
-        } else {
-            matches[match - 1]["row"].lastChild.firstChild.hidden = false
-        }
-        recording = false
-        request("POST", "/stop_recording", function () { }, {
+        request("POST", "/stop_recording", function () {
+            recording = false
+            matches[match - 1]["row"].lastChild.children[1].hidden = true
+            if (save) {
+                matches[match - 1]["row"].lastChild.lastChild.hidden = false
+            } else {
+                matches[match - 1]["row"].lastChild.firstChild.hidden = false
+            }
+        }, {
             save: save ? "1" : "0"
         }, "Failed to contact server")
     }
@@ -191,19 +185,6 @@ function stopRecording(match, save) {
 setInterval(function () {
     document.getElementById("frame").src = "frame.jpg?time=" + new Date().getTime().toString()
 }, 250)
-
-// Manager web socket
-function createSocket() {
-    var socket = new WebSocket("ws://" + window.location.hostname + ":8081")
-    socket.onmessage = function (event) {
-        match = Number(event.data)
-        matches[match - 1]["row"].lastChild.lastChild.hidden = true
-        matches[match - 1]["row"].lastChild.firstChild.lastChild.hidden = false
-        matches[match - 1]["row"].lastChild.firstChild.hidden = false
-    }
-    socket.onclose = createSocket
-}
-createSocket()
 
 // Manager timer
 setInterval(function () {

@@ -40,10 +40,5 @@ class GstreamerRecorder():
             self.process.wait()
             self.active = False
 
-
-streamer = GstreamerRecorder()
-streamer.start(RecorderMode.IDLE)
-print("Started")
-time.sleep(10)
-print("Stopping")
-streamer.stop()
+    def get_filename(self):
+        return self.filename
