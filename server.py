@@ -84,120 +84,6 @@ def encode_thread(frame_count, start_time, stop_time, fps, input, event, match):
 
 class main_server(object):
     @cherrypy.expose
-    def videos():
-        return """
-<html>
-
-<head>
-    <title>
-        6328 Scout Video - Viewing
-    </title>
-    <link rel="stylesheet" type="text/css" href="/static/css/index.css"></link>
-    <script type="text/javascript" src="/static/js/videos.js"></script>
-    <link rel="shortcut icon" href="/static/img/favicon.ico"></link>
-</head>
-
-<body>
-    <div class="camera-view">
-        <video src="http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" controls style="width: 590px;">
-    </div>
-    Event:
-    <select>
-        <option>
-            All
-        </option>
-        <option>
-            2020cmpmi
-        </option>
-        <option>
-            2020tes
-        </option>
-        <option>
-            2020necmp
-        </option>
-        <option>
-            2020mabos
-        </option>
-        <option>
-            2020onott
-        </option>
-        <option>
-            2020ctnct
-        </option>
-    </select>
-    <br>
-    Team:
-    <input type="number">
-    </input>
-    <button style="margin-left: 10px;">
-        Search
-    </button>
-                    
-    <table id="matchTable" style="margin-top: 10px;">
-        <tr>
-            <th>
-                Event
-            </th>
-            <th>
-                Match
-            </th>
-            <th>
-               B1
-            </th>
-            <th>
-                B2
-            </th>
-            <th>
-                B3
-            </th>
-            <th>
-                R1
-            </th>
-            <th>
-                R2
-            </th>
-            <th>
-                R3
-            </th>
-        </tr>
-        <tr>
-            <td class="data">
-                2019test 
-            </td>
-            <td class="data">
-                12
-            </td>
-            <td class="blue data">
-                6328
-            </td>
-            <td class="blue data">
-                4474
-            </td>
-            <td class="blue data">
-                6329
-            </td>
-            <td class="red data">
-                125
-            </td>
-            <td class="red data">
-                195
-            </td>
-            <td class="red data">
-                88
-            </td>
-            <td>
-                <button class="emoji">
-                    &#x25b6
-                </button>
-            </td>
-        </tr>
-    </table>
-</body>  
-
-</html>
-        """
-
-    @cherrypy.expose
     def index():
         return """
 <html>
@@ -220,10 +106,10 @@ class main_server(object):
             00:00:00.0
         </div>
     </div>
- 
+
     <b>
         Enter event name:
-    </b> 
+    </b>
     <input type="text" id="event">
     <button onclick="javascript:loadSchedule(&quot;tba&quot;)">
         Load from TBA
@@ -231,7 +117,7 @@ class main_server(object):
     <button onclick="javascript:loadSchedule(&quot;csv&quot;)">
         Load from CSV
     </button>
-                    
+
     <table id="matchTable" style="margin-top: 10px;">
         <tr>
             <th>
@@ -405,16 +291,95 @@ class main_server(object):
         return json.dumps(matches)
 
     @cherrypy.expose
+    def videos():
+        output = """
+<html>
+
+<head>
+    <title>
+        6328 Scout Video - Viewing
+    </title>
+    <link rel="stylesheet" type="text/css" href="/static/css/index.css"></link>
+    <script type="text/javascript" src="/static/js/videos.js"></script>
+    <link rel="shortcut icon" href="/static/img/favicon.ico"></link>
+</head>
+
+<body>
+    <div class="camera-view">
+        <video src="http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" controls style="width: 590px;">
+    </div>
+    Event:
+    <select id="eventSelect">
+        <option>
+            All
+        </option>
+        $EVENT_OPTIONS
+    </select>
+    <br>
+    Team:
+    <input type="number" id="teamSelect">
+    </input>
+    <button onclick="javascript:search()">
+        Search
+    </button>
+
+    <table id="matchTable" style="margin-top: 10px;">
+        <tr>
+            <th>
+                Event
+            </th>
+            <th>
+                Match
+            </th>
+            <th>
+               B1
+            </th>
+            <th>
+                B2
+            </th>
+            <th>
+                B3
+            </th>
+            <th>
+                R1
+            </th>
+            <th>
+                R2
+            </th>
+            <th>
+                R3
+            </th>
+        </tr>
+    </table>
+</body>
+
+</html>
+        """
+        # <button class="emoji">&#x25b6</button>
+        conn = sql.connect(db_path)
+        cur = conn.cursor()
+
+        events = [x[0] for x in cur.execute(
+            "SELECT DISTINCT event FROM videos ORDER BY event").fetchall()]
+        option_html = ""
+        for event in events:
+            option_html += "<option>" + event + "</option>"
+
+        conn.close()
+        return output.replace("$EVENT_OPTIONS", option_html)
+
+    @cherrypy.expose
     def search(event="All", team="0"):
+        print(event, team)
         conn = sql.connect(db_path)
         cur = conn.cursor()
 
         if event == "All":
             event = "%"
         if team == "0":
-            event = "%"
+            team = "%"
         data = cur.execute(
-            "SELECT * FROM videos WHERE event LIKE ? AND encoded=1 AND b1 LIKE ? OR b2 LIKE ? OR b3 LIKE ? OR r1 LIKE ? OR r2 LIKE ? OR r3 LIKE ?", (event, team, team, team, team, team, team)).fetchall()
+            "SELECT * FROM videos WHERE event LIKE ? AND encoded=1 AND (b1 LIKE ? OR b2 LIKE ? OR b3 LIKE ? OR r1 LIKE ? OR r2 LIKE ? OR r3 LIKE ?) ORDER BY event, match", (event, team, team, team, team, team, team)).fetchall()
         data = [{
             "event": x[0],
             "match": x[1],
