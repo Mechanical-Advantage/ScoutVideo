@@ -111,6 +111,14 @@ function getMatches() {
             buttonCell.lastChild.lastChild.onclick = stopFunc(matches[i]["match"], false)
             buttonCell.lastChild.lastChild.classList.add("emoji")
 
+            // Loading symbol
+            buttonCell.appendChild(document.createElement("DIV"))
+            buttonCell.lastChild.hidden = true
+            buttonCell.lastChild.classList.add("loading")
+            buttonCell.lastChild.appendChild(document.createElement("IMG"))
+            buttonCell.lastChild.firstChild.classList.add("loading")
+            buttonCell.lastChild.firstChild.src = "/static/img/loading.gif"
+
             // Show the correct buttons
             if (matches[i]["status"] == "waiting") {
                 buttonCell.firstChild.hidden = false
@@ -119,8 +127,6 @@ function getMatches() {
                 buttonCell.children[1].hidden = false
                 recording = true
                 flashesDone = 0
-            } else if (matches[i]["status"] == "encoding") {
-                buttonCell.lastChild.hidden = false
             } else if (matches[i]["status"] == "finished") {
                 buttonCell.firstChild.hidden = false
                 buttonCell.firstChild.lastChild.hidden = false
@@ -151,15 +157,17 @@ function startRecording(match) {
     if (recording) {
         alert("You cannot record multiple matches at once.")
     } else {
+        matches[match - 1]["row"].lastChild.firstChild.hidden = true
+        matches[match - 1]["row"].lastChild.lastChild.hidden = false
         request("POST", "/start_recording", function () {
             recording = true
-            matches[match - 1]["row"].lastChild.firstChild.hidden = true
             matches[match - 1]["row"].lastChild.children[1].hidden = false
+            matches[match - 1]["row"].lastChild.lastChild.hidden = true
             flashesDone = 0
             startTime = new Date().getTime()
         }, {
             match: match
-        }, "Failed to contact server")
+        }, "Failed to contact server.")
     }
 }
 
@@ -167,18 +175,26 @@ function startRecording(match) {
 // Stop recording
 function stopRecording(match, save) {
     if (confirm(save ? "Are you sure you want to stop recording?" : "Are you sure you want to cancel recording? It will be lost forever.")) {
+        matches[match - 1]["row"].lastChild.lastChild.hidden = false
+        matches[match - 1]["row"].lastChild.children[1].hidden = true
         request("POST", "/stop_recording", function () {
             recording = false
-            matches[match - 1]["row"].lastChild.children[1].hidden = true
+            matches[match - 1]["row"].lastChild.lastChild.hidden = true
+            matches[match - 1]["row"].lastChild.firstChild.hidden = false
             if (save) {
-                matches[match - 1]["row"].lastChild.lastChild.hidden = false
-            } else {
-                matches[match - 1]["row"].lastChild.firstChild.hidden = false
+                matches[match - 1]["row"].lastChild.firstChild.lastChild.hidden = false
             }
         }, {
             save: save ? "1" : "0"
-        }, "Failed to contact server")
+        }, "Failed to contact server.")
     }
+}
+
+// Reconnect to camera
+function reconnect() {
+    request("POST", "/reconnect", function (data) {
+        alert(data)
+    }, {}, "Failed to contact server.")
 }
 
 // Refresh frame

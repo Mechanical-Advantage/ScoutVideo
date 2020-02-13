@@ -12,7 +12,7 @@ import os
 port = 8080
 host = "0.0.0.0"
 db_path = "videos.db"
-video_dir = "videos"
+video_dir = "saved_videos"
 schedule_csv = "schedule.csv"
 tba = tbapy.TBA(
     "dfdifQQrVJfI7uRVhJzN21tEmB3zCne9CGHORrvz2M5jb5Gz53rUeCdpqCjz372N")
@@ -26,15 +26,15 @@ if not os.path.exists(video_dir):
     os.mkdir(video_dir)
 
 # Init database
-if not Path(db_path).is_file():
-    conn = sql.connect(db_path)
-    cur = conn.cursor()
+exists = Path(db_path).is_file()
+conn = sql.connect(db_path)
+cur = conn.cursor()
+if not exists:
     cur.execute("DROP TABLE IF EXISTS videos")
     cur.execute("""CREATE TABLE videos (
         event TEXT,
         match INTEGER,
         filename TEXT,
-        saved INTEGER,
         b1 INTEGER,
         b2 INTEGER,
         b3 INTEGER,
@@ -59,8 +59,10 @@ if not Path(db_path).is_file():
         ); """)
     cur.execute("INSERT INTO config (key, value) VALUES ('event', '2017nhgrs')")
     cur.execute("INSERT INTO config (key, value) VALUES ('recording', '0')")
-    conn.commit()
-    conn.close()
+else:
+    cur.execute("UPDATE config SET value=0 WHERE key='recording'")
+conn.commit()
+conn.close()
 
 
 class main_server(object):
@@ -82,12 +84,19 @@ class main_server(object):
     <div class="flash-box fade-out" id="flashBox"></div>
 
     <div class="camera-view">
+        <button onclick="javascript:reconnect()">
+            Reconnect to camera
+        </button>
         <img class="frame" src="frame.jpg" id="frame">
         <div class="time" id="time">
             00:00:00.0
         </div>
     </div>
 
+    <a href="/videos">
+        View Videos
+    </a>
+    <br>
     <b>
         Enter event name:
     </b>
@@ -130,6 +139,21 @@ class main_server(object):
         """
 
     @cherrypy.expose
+    def reconnect():
+        conn = sql.connect(db_path)
+        cur = conn.cursor()
+        recording = cur.execute(
+            "SELECT value FROM config WHERE key='recording'").fetchall()[0][0]
+        conn.commit()
+        conn.close()
+
+        if recording == "1":
+            return "Cannot reconnect while recording."
+        else:
+            recorder.start(gstreamer.RecorderMode.IDLE)
+            return "Camera successfully reconnected."
+
+    @cherrypy.expose
     def start_recording(match=0):
         conn = sql.connect(db_path)
         cur = conn.cursor()
@@ -143,6 +167,7 @@ class main_server(object):
 
     @cherrypy.expose
     def stop_recording(save="1"):
+        temp_filename = recorder.filename
         recorder.start(gstreamer.RecorderMode.IDLE)
 
         conn = sql.connect(db_path)
@@ -156,19 +181,16 @@ class main_server(object):
         cur.execute("UPDATE config SET value=0 WHERE key='recording'")
 
         if save == "0":
-            os.remove(recorder.get_filename())
+            os.remove(temp_filename)
         else:
-            cur.execute(
-                "DELETE FROM videos WHERE match=? AND event=?", (match, event))
-            cur.execute("INSERT INTO videos(event,match,saved,b1,b2,b3,r1,r2,r3) VALUES (?,?,?,?,?,?,?,?,?)",
-                        (event, match, 0) + tuple(teams))
-
             destination = video_dir + os.path.sep + event + \
                 "_m" + str(match).zfill(3) + ".mp4"
-            os.replace(recorder.get_filename(), destination)
-
             cur.execute(
-                "UPDATE videos SET filename=?, saved=1 WHERE event=? AND match=?", (filename, event, match))
+                "DELETE FROM videos WHERE match=? AND event=?", (match, event))
+            cur.execute("INSERT INTO videos(event,match,filename,b1,b2,b3,r1,r2,r3) VALUES (?,?,?,?,?,?,?,?,?)",
+                        (event, match, destination) + tuple(teams))
+
+            os.rename(temp_filename, destination)
 
         conn.commit()
         conn.close()
@@ -247,14 +269,11 @@ class main_server(object):
 
         for i in range(len(matches)):
             video_rows = cur.execute(
-                "SELECT saved FROM videos WHERE event=? AND match=?", (event, matches[i]["match"])).fetchall()
+                "SELECT * FROM videos WHERE event=? AND match=?", (event, matches[i]["match"])).fetchall()
             if len(video_rows) < 1:
                 matches[i]["status"] = "waiting"
             else:
-                if video_rows[0][0] == 1:
-                    matches[i]["status"] = "finished"
-                else:
-                    matches[i]["status"] = "error"
+                matches[i]["status"] = "finished"
 
         recording = int(cur.execute(
             "SELECT value FROM config WHERE key='recording'").fetchall()[0][0])
@@ -274,13 +293,12 @@ class main_server(object):
         6328 Scout Video - Viewing
     </title>
     <link rel="stylesheet" type="text/css" href="/static/css/index.css"></link>
-    <script type="text/javascript" src="/static/js/videos.js"></script>
     <link rel="shortcut icon" href="/static/img/favicon.ico"></link>
 </head>
 
 <body>
     <div class="camera-view">
-        <video src="http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" controls style="width: 590px;">
+        <video controls autoplay style="width: 590px;" id="videoView" hidden>
     </div>
     Event:
     <select id="eventSelect">
@@ -325,11 +343,12 @@ class main_server(object):
             </th>
         </tr>
     </table>
+
+    <script type="text/javascript" src="/static/js/videos.js"></script>
 </body>
 
 </html>
         """
-        # <button class="emoji">&#x25b6</button>
         conn = sql.connect(db_path)
         cur = conn.cursor()
 
@@ -344,7 +363,6 @@ class main_server(object):
 
     @cherrypy.expose
     def search(event="All", team="0"):
-        print(event, team)
         conn = sql.connect(db_path)
         cur = conn.cursor()
 
@@ -353,17 +371,17 @@ class main_server(object):
         if team == "0":
             team = "%"
         data = cur.execute(
-            "SELECT * FROM videos WHERE event LIKE ? AND saved=1 AND (b1 LIKE ? OR b2 LIKE ? OR b3 LIKE ? OR r1 LIKE ? OR r2 LIKE ? OR r3 LIKE ?) ORDER BY event, match", (event, team, team, team, team, team, team)).fetchall()
+            "SELECT * FROM videos WHERE event LIKE ? AND (b1 LIKE ? OR b2 LIKE ? OR b3 LIKE ? OR r1 LIKE ? OR r2 LIKE ? OR r3 LIKE ?) ORDER BY event, match", (event, team, team, team, team, team, team)).fetchall()
         data = [{
             "event": x[0],
             "match": x[1],
             "filename": x[2],
-            "b1": x[4],
-            "b2": x[5],
-            "b3": x[6],
-            "r1": x[7],
-            "r2": x[8],
-            "r3": x[9]
+            "b1": x[3],
+            "b2": x[4],
+            "b3": x[5],
+            "r1": x[6],
+            "r2": x[7],
+            "r3": x[8]
         } for x in data]
 
         conn.close()
@@ -374,4 +392,4 @@ if __name__ == "__main__":
     cherrypy.config.update(
         {'server.socket_port': port, 'server.socket_host': host})
     cherrypy.quickstart(main_server, "/", {"/frame.jpg": {
-                        "tools.staticfile.on": True, "tools.staticfile.filename": os.getcwd() + "/frame.jpg"}, "/static": {"tools.staticdir.on": True, "tools.staticdir.dir": os.getcwd() + "/static"}})
+                        "tools.staticfile.on": True, "tools.staticfile.filename": os.getcwd() + "/frame.jpg"}, "/static": {"tools.staticdir.on": True, "tools.staticdir.dir": os.getcwd() + "/static"}, "/" + video_dir: {"tools.staticdir.on": True, "tools.staticdir.dir": os.getcwd() + os.path.sep + video_dir}})

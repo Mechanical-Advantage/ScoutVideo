@@ -1,5 +1,4 @@
 function request(method, url, response, data, error) {
-    console.log(data)
     if (data == undefined) {
         data = {}
     }
@@ -47,6 +46,7 @@ function search() {
     var team = Number(document.getElementById("teamSelect").value)
     request("POST", "/search", function (data) {
         var matches = JSON.parse(data)
+        console.log(matches)
         var table = document.getElementById("matchTable")
         while (table.children.length > 1) {
             table.removeChild(table.children[1])
@@ -74,6 +74,23 @@ function search() {
                 row.appendChild(cell)
             }
 
+            // Buttons
+            var buttonCell = document.createElement("TD")
+            row.appendChild(buttonCell)
+
+            // Play button
+            buttonCell.appendChild(document.createElement("BUTTON"))
+            buttonCell.firstChild.innerHTML = "\u{25b6}"
+            function startFunc(filename) {
+                return function () {
+                    var video = document.getElementById("videoView")
+                    video.src = filename
+                    video.hidden = false
+                }
+            }
+            buttonCell.firstChild.onclick = startFunc(matches[i]["filename"])
+            buttonCell.firstChild.classList.add("emoji")
+
             table.appendChild(row)
         }
     }, {
@@ -81,3 +98,4 @@ function search() {
         team: team
     }, "Failed to retrieve data.")
 }
+search()
