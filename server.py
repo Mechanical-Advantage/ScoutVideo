@@ -13,6 +13,7 @@ port = 8080
 host = "0.0.0.0"
 db_path = "videos.db"
 video_dir = "saved_videos"
+usb_path = "/transfer-usb"
 schedule_csv = "schedule.csv"
 tba = tbapy.TBA(
     "dfdifQQrVJfI7uRVhJzN21tEmB3zCne9CGHORrvz2M5jb5Gz53rUeCdpqCjz372N")
@@ -42,6 +43,11 @@ if not exists:
         r2 INTEGER,
         r3 INTEGER
         ); """)
+    cur.execute("DROP TABLE IF EXISTS usb")
+    cur.execute("""CREATE TABLE usb (
+        filename TEXT,
+        saved INTEGER
+        ); """)
     cur.execute("DROP TABLE IF EXISTS schedule")
     cur.execute("""CREATE TABLE schedule (
         match INTEGER,
@@ -59,6 +65,9 @@ if not exists:
         ); """)
     cur.execute("INSERT INTO config (key, value) VALUES ('event', '2017nhgrs')")
     cur.execute("INSERT INTO config (key, value) VALUES ('recording', '0')")
+    cur.execute("INSERT INTO config (key, value) VALUES ('usb_connected', '0')")
+    cur.execute("INSERT INTO config (key, value) VALUES ('usb_used', '0')")
+    cur.execute("INSERT INTO config (key, value) VALUES ('usb_total', '0')")
 else:
     cur.execute("UPDATE config SET value=0 WHERE key='recording'")
 conn.commit()
