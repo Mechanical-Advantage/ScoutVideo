@@ -11,7 +11,7 @@ import subprocess
 import os
 
 # Config
-port = 8080
+port = 8000
 host = "0.0.0.0"
 db_path = "videos.db"
 video_dir = "saved_videos"
