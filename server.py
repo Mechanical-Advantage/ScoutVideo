@@ -2,10 +2,12 @@ import gstreamer
 import cherrypy
 import sqlite3 as sql
 import tbapy
+import shutil
 import json
 import threading
 from pathlib import Path
 import time
+import subprocess
 import os
 
 # Config
@@ -13,7 +15,7 @@ port = 8080
 host = "0.0.0.0"
 db_path = "videos.db"
 video_dir = "saved_videos"
-usb_path = "/transfer-usb"
+usb_path = "/transfer-usb/"  # include trailing slash
 schedule_csv = "schedule.csv"
 tba = tbapy.TBA(
     "dfdifQQrVJfI7uRVhJzN21tEmB3zCne9CGHORrvz2M5jb5Gz53rUeCdpqCjz372N")
@@ -25,6 +27,23 @@ recorder.start(gstreamer.RecorderMode.IDLE)
 # Create folder
 if not os.path.exists(video_dir):
     os.mkdir(video_dir)
+
+# Run command and get stout and sterr
+
+
+def run_command(args, output=True):
+    if output:
+        process = subprocess.Popen(
+            args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
+        result = stdout.decode("utf-8")
+        result += stderr.decode("utf-8")
+        return result
+    else:
+        process = subprocess.call(
+            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+
 
 # Init database
 exists = Path(db_path).is_file()
@@ -45,8 +64,9 @@ if not exists:
         ); """)
     cur.execute("DROP TABLE IF EXISTS usb")
     cur.execute("""CREATE TABLE usb (
-        filename TEXT,
-        saved INTEGER
+        filename TEXT UNIQUE,
+        to_copy INTEGER,
+        to_delete INTEGER
         ); """)
     cur.execute("DROP TABLE IF EXISTS schedule")
     cur.execute("""CREATE TABLE schedule (
@@ -72,6 +92,83 @@ else:
     cur.execute("UPDATE config SET value=0 WHERE key='recording'")
 conn.commit()
 conn.close()
+
+
+# USB management thread
+def manage_usb():
+    def usb_connected():
+        return "disconnected.txt" not in os.listdir(usb_path)
+
+    conn = sql.connect(db_path)
+    cur = conn.cursor()
+
+    while True:
+        # Set disconnected
+        cur.execute("UPDATE config SET value='0' WHERE key='usb_connected'")
+        conn.commit()
+
+        # Wait for connection
+        while not usb_connected():
+            time.sleep(1)
+
+        # Set connected
+        cur.execute("UPDATE config SET value='1' WHERE key='usb_connected'")
+        conn.commit()
+
+        # Wait for disconnect
+        while usb_connected():
+            # Get used and available space
+            output = run_command(["df", usb_path]).split("\n")[1].split(" ")
+            used = int(output[8])
+            total = int(output[8]) + int(output[11])
+            cur.execute(
+                "UPDATE config SET value=? WHERE key='usb_used'", (used,))
+            cur.execute(
+                "UPDATE config SET value=? WHERE key='usb_total'", (total,))
+
+            # Update file list
+            cur.execute("DELETE FROM usb WHERE to_copy=0 AND to_delete=0")
+            files = [x for x in os.listdir(usb_path) if x.endswith(".mp4")]
+            for filename in files:
+                try:
+                    cur.execute(
+                        "INSERT INTO usb(filename,to_copy,to_delete) VALUES (?,0,0)", (filename,))
+                except:
+                    pass
+
+            # Commit db before copy
+            conn.commit()
+
+            # Copy files
+            to_copy = [x[0] for x in cur.execute(
+                "SELECT filename FROM usb WHERE to_copy=1").fetchall()]
+            for filename in to_copy:
+                try:
+                    shutil.copyfile(video_dir + os.path.sep +
+                                    filename, usb_path + filename)
+                except:
+                    pass
+                else:
+                    cur.execute(
+                        "UPDATE usb SET to_copy=0 WHERE filename=?", (filename,))
+
+            # Delete files
+            to_delete = [x[0] for x in cur.execute(
+                "SELECT filename FROM usb WHERE to_delete=1").fetchall()]
+            for filename in to_delete:
+                if Path(usb_path + filename).is_file():
+                    try:
+                        os.remove(usb_path + filename)
+                    except:
+                        pass
+                    else:
+                        cur.execute(
+                            "DELETE FROM usb WHERE filename=?", (filename,))
+
+            # Commit db
+            conn.commit()
+
+            time.sleep(1)
 
 
 class main_server(object):
@@ -398,6 +495,8 @@ class main_server(object):
 
 
 if __name__ == "__main__":
+    usb_thread = threading.Thread(target=manage_usb, args=(), daemon=True)
+    usb_thread.start()
     cherrypy.config.update(
         {'server.socket_port': port, 'server.socket_host': host})
     cherrypy.quickstart(main_server, "/", {"/frame.jpg": {
