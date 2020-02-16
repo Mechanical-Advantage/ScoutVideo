@@ -200,7 +200,7 @@ function reconnect() {
 // Refresh frame
 setInterval(function () {
     document.getElementById("frame").src = "frame.jpg?time=" + new Date().getTime().toString()
-}, 250)
+}, 100)
 
 // Manager timer
 setInterval(function () {

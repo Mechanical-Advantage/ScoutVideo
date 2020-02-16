@@ -157,13 +157,8 @@ def manage_usb():
                 "SELECT filename FROM usb WHERE to_delete=1").fetchall()]
             for filename in to_delete:
                 if Path(usb_path + filename).is_file():
-                    try:
-                        os.remove(usb_path + filename)
-                    except:
-                        pass
-                    else:
-                        cur.execute(
-                            "DELETE FROM usb WHERE filename=?", (filename,))
+                    run_command(["rm", usb_path + filename], output=False)
+                    cur.execute("DELETE FROM usb WHERE filename=?", (filename,))
 
             # Commit db
             conn.commit()
@@ -199,7 +194,7 @@ class main_server(object):
         </div>
     </div>
 
-    <a href="/videos">
+    <a href="/videos" target="_blank">
         View Videos
     </a>
     <br>
