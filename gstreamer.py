@@ -22,7 +22,7 @@ class GstreamerRecorder():
         self.idle_command = "gst-launch-1.0 -e v4l2src device=" + self.device + " ! 'video/x-raw,width=" + str(self.width) + ",height=" + str(
             self.height) + "' ! videorate ! 'video/x-raw,framerate=10/1' ! videoconvert ! jpegenc ! multifilesink location=frame.jpg"
         self.record_command = "gst-launch-1.0 -e v4l2src device=" + self.device + " ! 'video/x-raw,width=" + str(self.width) + ",height=" + str(
-            self.height) + "' ! tee name=t ! queue ! videoconvert ! omxh264enc ! h264parse ! mp4mux ! filesink location=$FILENAME t. ! queue ! videorate ! 'video/x-raw,framerate=10/1' ! videoconvert ! jpegenc ! multifilesink location=frame.jpg"
+            self.height) + "' ! tee name=t ! queue ! videoconvert ! omxh264enc ! h264parse ! mp4mux ! filesink location=$FILENAME t. ! queue ! videorate ! 'video/x-raw,framerate=4/1' ! videoconvert ! jpegenc ! multifilesink location=frame.jpg"
 
     def start(self, mode, filename=None):
         if self.active:
