@@ -97,7 +97,9 @@ function search() {
             buttonDiv.lastChild.innerHTML = "\u{2709}"
             function copyFunc(filename) {
                 return function () {
-                    request("POST", "/copy_file", function () { }, {
+                    request("POST", "/copy_file", function () {
+                        getFiles()
+                    }, {
                         "filename": filename,
                     }, "Failed to copy file.")
                 }
@@ -168,7 +170,9 @@ function getFiles() {
                 buttonCell.firstChild.innerHTML = "\u{1f5d1}"
                 function deleteFunc(filename) {
                     return function () {
-                        request("POST", "/delete_file", function () { }, {
+                        request("POST", "/delete_file", function () {
+                            getFiles()
+                        }, {
                             "filename": filename,
                         }, "Failed to delete file.")
                     }
