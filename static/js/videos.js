@@ -46,7 +46,6 @@ function search() {
     var team = Number(document.getElementById("teamSelect").value)
     request("POST", "/search", function (data) {
         var matches = JSON.parse(data)
-        console.log(matches)
         var table = document.getElementById("matchTable")
         while (table.children.length > 1) {
             table.removeChild(table.children[1])
@@ -77,10 +76,12 @@ function search() {
             // Buttons
             var buttonCell = document.createElement("TD")
             row.appendChild(buttonCell)
+            var buttonDiv = document.createElement("DIV")
+            buttonCell.appendChild(buttonDiv)
 
             // Play button
-            buttonCell.appendChild(document.createElement("BUTTON"))
-            buttonCell.firstChild.innerHTML = "\u{25b6}"
+            buttonDiv.appendChild(document.createElement("BUTTON"))
+            buttonDiv.firstChild.innerHTML = "\u{25b6}"
             function startFunc(filename) {
                 return function () {
                     var video = document.getElementById("videoView")
@@ -88,8 +89,21 @@ function search() {
                     video.hidden = false
                 }
             }
-            buttonCell.firstChild.onclick = startFunc(matches[i]["filename"])
-            buttonCell.firstChild.classList.add("emoji")
+            buttonDiv.firstChild.onclick = startFunc(matches[i]["filename"])
+            buttonDiv.firstChild.classList.add("emoji")
+
+            // Copy button
+            buttonDiv.appendChild(document.createElement("BUTTON"))
+            buttonDiv.lastChild.innerHTML = "\u{2709}"
+            function copyFunc(filename) {
+                return function () {
+                    request("POST", "/copy_file", function () { }, {
+                        "filename": filename,
+                    }, "Failed to copy file.")
+                }
+            }
+            buttonDiv.lastChild.onclick = copyFunc(matches[i]["filename"])
+            buttonDiv.lastChild.classList.add("emoji")
 
             table.appendChild(row)
         }
@@ -99,3 +113,73 @@ function search() {
     }, "Failed to retrieve data.")
 }
 search()
+
+// Get files and reconstruct files table
+function getFiles() {
+    request("GET", "/get_files", function (data) {
+        var data = JSON.parse(data)
+
+        // Connected
+        document.getElementById("usbConnected").innerHTML = data.connected ? "Connected" : "Disconnected"
+
+        // Progress bar
+        document.getElementById("usbProgress").value = data.used
+        document.getElementById("usbProgress").max = data.total
+        document.getElementById("usbUsed").innerHTML = Math.round((data.used / 1048576) * 10) / 10
+        document.getElementById("usbTotal").innerHTML = Math.round((data.total / 1048576) * 10) / 10
+
+        // File list
+        var files = data.files
+        var table = document.getElementById("usbTable")
+        while (table.children.length > 1) {
+            table.removeChild(table.children[1])
+        }
+        for (var i = 0; i < files.length; i++) {
+            var row = document.createElement("TR")
+
+            // File name
+            row.appendChild(document.createElement("TD"))
+            row.lastChild.classList.add("data")
+            row.lastChild.innerHTML = files[i]["filename"]
+
+            // Size
+            row.appendChild(document.createElement("TD"))
+            row.lastChild.classList.add("data")
+            if (files[i]["size"] == null) {
+                row.lastChild.innerHTML = "NA"
+            } else {
+                row.lastChild.innerHTML = (Math.round((files[i]["size"] / 1024) * 10) / 10).toString() + " MB"
+            }
+
+            // Buttons
+            var buttonCell = document.createElement("TD")
+            row.appendChild(buttonCell)
+
+            if (files[i]["to_copy"] == 1) {
+                // Loading symbol
+                buttonCell.appendChild(document.createElement("DIV"))
+                buttonCell.lastChild.classList.add("loading")
+                buttonCell.lastChild.appendChild(document.createElement("IMG"))
+                buttonCell.lastChild.firstChild.classList.add("loading")
+                buttonCell.lastChild.firstChild.src = "/static/img/loading.gif"
+            } else {
+                // Trash can
+                buttonCell.appendChild(document.createElement("BUTTON"))
+                buttonCell.firstChild.innerHTML = "\u{1f5d1}"
+                function deleteFunc(filename) {
+                    return function () {
+                        request("POST", "/delete_file", function () { }, {
+                            "filename": filename,
+                        }, "Failed to delete file.")
+                    }
+                }
+                buttonCell.firstChild.onclick = deleteFunc(files[i]["filename"])
+                buttonCell.firstChild.classList.add("emoji")
+            }
+
+            table.appendChild(row)
+        }
+    }, {}, "Failed to retrieve USB file list.")
+}
+getFiles()
+setInterval(getFiles, 2000)

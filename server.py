@@ -28,9 +28,8 @@ recorder.start(gstreamer.RecorderMode.IDLE)
 if not os.path.exists(video_dir):
     os.mkdir(video_dir)
 
+
 # Run command and get stout and sterr
-
-
 def run_command(args, output=True):
     if output:
         process = subprocess.Popen(
@@ -65,6 +64,7 @@ if not exists:
     cur.execute("DROP TABLE IF EXISTS usb")
     cur.execute("""CREATE TABLE usb (
         filename TEXT UNIQUE,
+        size INTEGER,
         to_copy INTEGER,
         to_delete INTEGER
         ); """)
@@ -97,7 +97,10 @@ conn.close()
 # USB management thread
 def manage_usb():
     def usb_connected():
-        return "disconnected.txt" not in os.listdir(usb_path)
+        try:
+            return "disconnected.txt" not in os.listdir(usb_path)
+        except:
+            return False
 
     conn = sql.connect(db_path)
     cur = conn.cursor()
@@ -109,7 +112,7 @@ def manage_usb():
 
         # Wait for connection
         while not usb_connected():
-            time.sleep(1)
+            time.sleep(0.2)
 
         # Set connected
         cur.execute("UPDATE config SET value='1' WHERE key='usb_connected'")
@@ -117,53 +120,60 @@ def manage_usb():
 
         # Wait for disconnect
         while usb_connected():
-            # Get used and available space
-            output = run_command(["df", usb_path]).split("\n")[1].split(" ")
-            used = int(output[8])
-            total = int(output[8]) + int(output[11])
-            cur.execute(
-                "UPDATE config SET value=? WHERE key='usb_used'", (used,))
-            cur.execute(
-                "UPDATE config SET value=? WHERE key='usb_total'", (total,))
+            try:
+                # Get used and available space
+                output = run_command(["df", usb_path]).split("\n")[
+                    1].split(" ")
+                used = int(output[8])
+                total = int(output[8]) + int(output[11])
+                cur.execute(
+                    "UPDATE config SET value=? WHERE key='usb_used'", (used,))
+                cur.execute(
+                    "UPDATE config SET value=? WHERE key='usb_total'", (total,))
 
-            # Update file list
-            cur.execute("DELETE FROM usb WHERE to_copy=0 AND to_delete=0")
-            files = [x for x in os.listdir(usb_path) if x.endswith(".mp4")]
-            for filename in files:
-                try:
-                    cur.execute(
-                        "INSERT INTO usb(filename,to_copy,to_delete) VALUES (?,0,0)", (filename,))
-                except:
-                    pass
+                # Update file list
+                cur.execute("DELETE FROM usb WHERE to_copy=0 AND to_delete=0")
+                files = [x for x in os.listdir(usb_path) if x.endswith(".mp4")]
+                for filename in files:
+                    try:
+                        size = round(
+                            os.stat(usb_path + filename).st_size / 1024)
+                        cur.execute(
+                            "INSERT INTO usb(filename,size,to_copy,to_delete) VALUES (?,?,0,0)", (filename, size))
+                    except:
+                        pass
 
-            # Commit db before copy
-            conn.commit()
+                # Commit db before copy
+                conn.commit()
 
-            # Copy files
-            to_copy = [x[0] for x in cur.execute(
-                "SELECT filename FROM usb WHERE to_copy=1").fetchall()]
-            for filename in to_copy:
-                try:
-                    shutil.copyfile(video_dir + os.path.sep +
-                                    filename, usb_path + filename)
-                except:
-                    pass
-                else:
-                    cur.execute(
-                        "UPDATE usb SET to_copy=0 WHERE filename=?", (filename,))
+                # Copy files
+                to_copy = [x[0] for x in cur.execute(
+                    "SELECT filename FROM usb WHERE to_copy=1").fetchall()]
+                for filename in to_copy:
+                    try:
+                        shutil.copyfile(video_dir + os.path.sep +
+                                        filename, usb_path + filename)
+                    except:
+                        pass
+                    else:
+                        cur.execute(
+                            "UPDATE usb SET to_copy=0 WHERE filename=?", (filename,))
 
-            # Delete files
-            to_delete = [x[0] for x in cur.execute(
-                "SELECT filename FROM usb WHERE to_delete=1").fetchall()]
-            for filename in to_delete:
-                if Path(usb_path + filename).is_file():
-                    run_command(["rm", usb_path + filename], output=False)
-                    cur.execute("DELETE FROM usb WHERE filename=?", (filename,))
+                # Delete files
+                to_delete = [x[0] for x in cur.execute(
+                    "SELECT filename FROM usb WHERE to_delete=1").fetchall()]
+                for filename in to_delete:
+                    if Path(usb_path + filename).is_file():
+                        run_command(["rm", usb_path + filename], output=False)
+                        cur.execute(
+                            "DELETE FROM usb WHERE filename=?", (filename,))
 
-            # Commit db
-            conn.commit()
+                # Commit db
+                conn.commit()
 
-            time.sleep(1)
+                time.sleep(0.2)
+            except:
+                pass
 
 
 class main_server(object):
@@ -400,7 +410,33 @@ class main_server(object):
 <body>
     <div class="camera-view">
         <video controls autoplay style="width: 590px;" id="videoView" hidden>
+            Video playback not supported
+        </video>
+        <h3>
+            USB Drive Files
+        </h3>
+
+        <div id="usbConnected" style="text-decoration: underline; margin-bottom: 5px;">
+            Disconnected
+        </div>
+        
+        <div style="font-style: italic;">
+            <span id="usbUsed">?</span> GB/<span id="usbTotal">?</span> GB
+        </div>
+        <progress value="0" max="100" id="usbProgress"></progress>
+
+        <table id="usbTable">
+            <tr>
+                <th>
+                    Filename
+                </th>
+                <th>
+                    Size
+                </th>
+            </tr>
+        </table>
     </div>
+    
     Event:
     <select id="eventSelect">
         <option>
@@ -487,6 +523,56 @@ class main_server(object):
 
         conn.close()
         return json.dumps(data)
+
+    @cherrypy.expose
+    def get_files():
+        conn = sql.connect(db_path)
+        cur = conn.cursor()
+
+        data = cur.execute(
+            "SELECT value FROM config WHERE key='usb_used' OR key='usb_total' OR key='usb_connected' ORDER BY key DESC").fetchall()
+        used = data[0][0]
+        total = data[1][0]
+        connected = data[2][0] == "1"
+        file_data = cur.execute(
+            "SELECT filename,size,to_copy FROM usb WHERE to_delete=0 ORDER BY filename").fetchall()
+
+        file_data = [{
+            "filename": x[0],
+            "size": x[1],
+            "to_copy": x[2]
+        } for x in file_data]
+        result = {
+            "used": used,
+            "total": total,
+            "connected": connected,
+            "files": file_data
+        }
+
+        conn.close()
+        return json.dumps(result)
+
+    @cherrypy.expose
+    def copy_file(filename=""):
+        conn = sql.connect(db_path)
+        cur = conn.cursor()
+
+        filename = filename[len(video_dir) + len(os.path.sep):]
+        cur.execute(
+            "INSERT INTO usb(filename,to_copy,to_delete) VALUES (?,1,0)", (filename,))
+
+        conn.commit()
+        conn.close()
+
+    @cherrypy.expose
+    def delete_file(filename=""):
+        conn = sql.connect(db_path)
+        cur = conn.cursor()
+
+        cur.execute("UPDATE usb SET to_delete=1 WHERE filename=?", (filename,))
+
+        conn.commit()
+        conn.close()
 
 
 if __name__ == "__main__":

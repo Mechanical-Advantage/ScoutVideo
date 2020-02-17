@@ -49,11 +49,16 @@ img.loading {
 
 div.camera-view {
     position: fixed;
-    width: 600px;
+    width: 620px;
     right: 10px;
     top: 10px;
     bottom: 10px;
     text-align: center;
+    overflow: auto;
+}
+
+progress {
+    width: 550px;
 }
 
 img.frame {
