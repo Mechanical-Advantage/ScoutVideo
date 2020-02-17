@@ -574,6 +574,95 @@ class main_server(object):
         conn.commit()
         conn.close()
 
+    @cherrypy.expose
+    def shutdown():
+        return """
+<html>
+
+<head>
+    <title>
+        6328 Scout Video - Shutdown
+    </title>
+    <link rel="stylesheet" type="text/css" href="/static/css/index.css"></link>
+    <link rel="shortcut icon" href="/static/img/favicon.ico"></link>
+    <script>
+
+function request(method, url, response, data, error) {
+    if (data == undefined) {
+        data = {}
+    }
+
+    const http = new XMLHttpRequest()
+    const form = new FormData()
+    for (name in data) {
+        form.append(name, data[name])
+    }
+
+    if (response != undefined) {
+        http.onreadystatechange = function () {
+            if (this.readyState == 4) {
+                if (this.status == 200) {
+                    response(this.responseText)
+                } else {
+                    if (error != undefined) {
+                        console.error(error)
+                        alert(error)
+                    }
+                }
+            }
+        }
+    }
+
+    if (error != undefined) {
+        http.onerror = function () {
+            console.error(error)
+            alert(error)
+        }
+
+        http.ontimeout = function () {
+            console.error(error)
+            alert(error)
+        }
+    }
+
+    http.open(method, url)
+    http.send(form)
+}
+
+function send(func) {
+    if (confirm("Are you sure you want to " + func + "?")) {
+        request("POST", "/shutdown_internal", function () { }, {
+                "func": func
+            })
+    }
+}
+
+    </script>
+</head>
+
+<body>
+    <h4>
+        Shutdown or Reboot Jetson:
+    </h4>
+    <button onclick="javascript:send(&quot;shutdown&quot;)">
+        Shutdown
+    </button>
+    <button onclick="javascript:send(&quot;reboot&quot;)">
+        Reboot
+    </button>
+</body>
+
+</html>
+        """
+
+    @cherrypy.expose
+    def shutdown_internal(func="none"):
+        if func == "shutdown":
+            run_command(["sudo", "shutdown", "now"])
+        elif func == "reboot":
+            run_command(["sudo", "reboot"])
+        return ""
+
 
 if __name__ == "__main__":
     usb_thread = threading.Thread(target=manage_usb, args=(), daemon=True)
