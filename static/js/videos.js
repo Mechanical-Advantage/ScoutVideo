@@ -127,6 +127,7 @@ function getFiles() {
         // Progress bar
         document.getElementById("usbProgress").value = data.used
         document.getElementById("usbProgress").max = data.total
+        document.getElementById("usbProgress").classList = [data.name]
         document.getElementById("usbUsed").innerHTML = Math.round((data.used / 1048576) * 10) / 10
         document.getElementById("usbTotal").innerHTML = Math.round((data.total / 1048576) * 10) / 10
 
@@ -183,7 +184,19 @@ function getFiles() {
 
             table.appendChild(row)
         }
-    }, {}, "Failed to retrieve USB file list.")
+    }, {})
 }
 getFiles()
 setInterval(getFiles, 2000)
+
+// Unmount USB drive
+var unmountTimeout
+function unmount() {
+    request("POST", "/unmount_usb", function () {
+        clearTimeout(unmountTimeout)
+        alert("\u{2714} Safe to remove USB drive.")
+    }, {}, "Failed to unmount USB drive. DO NOT REMOVE")
+    unmountTimeout = setTimeout(function () {
+        alert("Ejecting the USB drive is taking longer than expected. Please wait for completion. DO NOT REMOVE")
+    }, 1000)
+}

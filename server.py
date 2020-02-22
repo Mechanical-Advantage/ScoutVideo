@@ -15,7 +15,13 @@ port = 8000
 host = "0.0.0.0"
 db_path = "videos.db"
 video_dir = "saved_videos"
-usb_path = "/transfer-usb/"  # include trailing slash
+usb_paths = {
+    "/transfer-black/": "black",
+    "/transfer-blue/": "blue",
+    "/transfer-gray/": "gray",
+    "/transfer-green/": "green",
+    "/transfer-red/": "red"
+}
 schedule_csv = "schedule.csv"
 tba = tbapy.TBA(
     "dfdifQQrVJfI7uRVhJzN21tEmB3zCne9CGHORrvz2M5jb5Gz53rUeCdpqCjz372N")
@@ -86,6 +92,7 @@ if not exists:
     cur.execute("INSERT INTO config (key, value) VALUES ('event', '2017nhgrs')")
     cur.execute("INSERT INTO config (key, value) VALUES ('recording', '0')")
     cur.execute("INSERT INTO config (key, value) VALUES ('usb_connected', '0')")
+    cur.execute("INSERT INTO config (key, value) VALUES ('usb_name', '')")
     cur.execute("INSERT INTO config (key, value) VALUES ('usb_used', '0')")
     cur.execute("INSERT INTO config (key, value) VALUES ('usb_total', '0')")
 else:
@@ -95,10 +102,17 @@ conn.close()
 
 
 # USB management thread
+current_usb_path = ""
+current_usb_name = ""
+
+
 def manage_usb():
-    def usb_connected():
+    global current_usb_path
+    global current_usb_name
+
+    def usb_connected(path):
         try:
-            return "disconnected.txt" not in os.listdir(usb_path)
+            return "disconnected.txt" not in os.listdir(path)
         except:
             return False
 
@@ -111,21 +125,30 @@ def manage_usb():
         conn.commit()
 
         # Wait for connection
-        while not usb_connected():
+        connected = False
+        while not connected:
             time.sleep(0.2)
+            for path, name in usb_paths.items():
+                if usb_connected(path):
+                    connected = True
+                    current_usb_path = path
+                    current_usb_name = name
+                    break
 
         # Set connected
         cur.execute("UPDATE config SET value='1' WHERE key='usb_connected'")
+        cur.execute("UPDATE config SET value=? WHERE key='usb_name'",
+                    (current_usb_name,))
         conn.commit()
 
         # Wait for disconnect
-        while usb_connected():
+        while usb_connected(current_usb_path):
             try:
                 # Get used and available space
-                output = run_command(["df", usb_path]).split("\n")[
+                output = run_command(["df", current_usb_path]).split("\n")[
                     1].split(" ")
                 used = int(output[8])
-                total = int(output[8]) + int(output[11])
+                total = int(output[7])
                 cur.execute(
                     "UPDATE config SET value=? WHERE key='usb_used'", (used,))
                 cur.execute(
@@ -133,11 +156,12 @@ def manage_usb():
 
                 # Update file list
                 cur.execute("DELETE FROM usb WHERE to_copy=0 AND to_delete=0")
-                files = [x for x in os.listdir(usb_path) if x.endswith(".mp4")]
+                files = [x for x in os.listdir(
+                    current_usb_path) if x.endswith(".mp4")]
                 for filename in files:
                     try:
                         size = round(
-                            os.stat(usb_path + filename).st_size / 1024)
+                            os.stat(current_usb_path + filename).st_size / 1024)
                         cur.execute(
                             "INSERT INTO usb(filename,size,to_copy,to_delete) VALUES (?,?,0,0)", (filename, size))
                     except:
@@ -152,7 +176,7 @@ def manage_usb():
                 for filename in to_copy:
                     try:
                         shutil.copyfile(video_dir + os.path.sep +
-                                        filename, usb_path + filename)
+                                        filename, current_usb_path + filename)
                     except:
                         pass
                     else:
@@ -163,8 +187,9 @@ def manage_usb():
                 to_delete = [x[0] for x in cur.execute(
                     "SELECT filename FROM usb WHERE to_delete=1").fetchall()]
                 for filename in to_delete:
-                    if Path(usb_path + filename).is_file():
-                        run_command(["rm", usb_path + filename], output=False)
+                    if Path(current_usb_path + filename).is_file():
+                        run_command(
+                            ["rm", current_usb_path + filename], output=False)
                         cur.execute(
                             "DELETE FROM usb WHERE filename=?", (filename,))
 
@@ -295,7 +320,7 @@ class main_server(object):
             os.remove(temp_filename)
         else:
             destination = video_dir + os.path.sep + event + \
-                "_m" + str(match).zfill(3) + ".mp4"
+                "_m" + str(match).zfill(3) + " (" + ",".join([str(x) for x in teams]) + ").mp4"
             cur.execute(
                 "DELETE FROM videos WHERE match=? AND event=?", (match, event))
             cur.execute("INSERT INTO videos(event,match,filename,b1,b2,b3,r1,r2,r3) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -419,6 +444,10 @@ class main_server(object):
         <div id="usbConnected" style="text-decoration: underline; margin-bottom: 5px;">
             Disconnected
         </div>
+
+        <button style="margin-top: 5px; margin-bottom: 5px;" onclick="javascript:unmount()">
+            Eject USB drive
+        </button>
         
         <div style="font-style: italic;">
             <span id="usbUsed">?</span> GB/<span id="usbTotal">?</span> GB
@@ -530,10 +559,12 @@ class main_server(object):
         cur = conn.cursor()
 
         data = cur.execute(
-            "SELECT value FROM config WHERE key='usb_used' OR key='usb_total' OR key='usb_connected' ORDER BY key DESC").fetchall()
-        used = data[0][0]
-        total = data[1][0]
-        connected = data[2][0] == "1"
+            "SELECT value FROM config WHERE key='usb_used' OR key='usb_total' OR key='usb_connected' OR key='usb_name' ORDER BY key").fetchall()
+        connected = data[0][0] == "1"
+        name = data[1][0]
+        total = data[2][0]
+        used = data[3][0]
+
         file_data = cur.execute(
             "SELECT filename,size,to_copy FROM usb WHERE to_delete=0 ORDER BY filename").fetchall()
 
@@ -546,11 +577,17 @@ class main_server(object):
             "used": used,
             "total": total,
             "connected": connected,
+            "name": name,
             "files": file_data
         }
 
         conn.close()
         return json.dumps(result)
+
+    @cherrypy.expose
+    def unmount_usb():
+        run_command(["sync"], output=False)
+        run_command(["sudo", "umount", current_usb_path])
 
     @cherrypy.expose
     def copy_file(filename=""):
