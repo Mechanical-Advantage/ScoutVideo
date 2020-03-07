@@ -53,11 +53,6 @@ function search() {
         for (var i = 0; i < matches.length; i++) {
             var row = document.createElement("TR")
 
-            // Event
-            row.appendChild(document.createElement("TD"))
-            row.firstChild.classList.add("data")
-            row.firstChild.innerHTML = matches[i]["event"]
-
             // Match number
             row.appendChild(document.createElement("TD"))
             row.lastChild.classList.add("data")

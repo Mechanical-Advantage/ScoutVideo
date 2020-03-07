@@ -58,7 +58,8 @@ if not exists:
     cur.execute("DROP TABLE IF EXISTS videos")
     cur.execute("""CREATE TABLE videos (
         event TEXT,
-        match INTEGER,
+        match TEXT,
+        match_sortid INTEGER,
         filename TEXT,
         b1 INTEGER,
         b2 INTEGER,
@@ -76,7 +77,9 @@ if not exists:
         ); """)
     cur.execute("DROP TABLE IF EXISTS schedule")
     cur.execute("""CREATE TABLE schedule (
-        match INTEGER,
+        match TEXT,
+        match_sortid INTEGER,
+        editable INTEGER,
         b1 INTEGER,
         b2 INTEGER,
         b3 INTEGER,
@@ -232,17 +235,33 @@ class main_server(object):
     <a href="/videos" target="_blank">
         View Videos
     </a>
+
     <br>
     <b>
         Enter event name:
     </b>
     <input type="text" id="event">
-    <button onclick="javascript:loadSchedule(&quot;tba&quot;)">
-        Load from TBA
-    </button>
-    <button onclick="javascript:loadSchedule(&quot;csv&quot;)">
-        Load from CSV
-    </button>
+
+    <br>
+    <b>
+        # of practice matches:
+    </b>
+    <input type="number" id="practiceMatches" min=0>
+
+    <br>
+    <b>
+        Include playoffs:
+    </b>
+    <input type="checkbox" id="includePlayoffs">
+
+    <div style="margin-top: 5px;">
+        <button onclick="javascript:loadSchedule(&quot;tba&quot;)">
+            Load from TBA
+        </button>
+        <button onclick="javascript:loadSchedule(&quot;csv&quot;)">
+            Load from CSV
+        </button>
+    </div>
 
     <table id="matchTable" style="margin-top: 10px;">
         <tr>
@@ -290,7 +309,7 @@ class main_server(object):
             return "Camera successfully reconnected."
 
     @cherrypy.expose
-    def start_recording(match=0):
+    def start_recording(match=""):
         conn = sql.connect(db_path)
         cur = conn.cursor()
         cur.execute("UPDATE config SET value=? WHERE key='recording'", (match,))
@@ -312,6 +331,8 @@ class main_server(object):
             "SELECT value FROM config WHERE key='recording'").fetchall()[0][0]
         event = cur.execute(
             "SELECT value FROM config WHERE key='event'").fetchall()[0][0]
+        sortid = cur.execute(
+            "SELECT match_sortid FROM schedule WHERE match=?", (match,)).fetchall()[0][0]
         teams = cur.execute(
             "SELECT b1,b2,b3,r1,r2,r3 FROM schedule WHERE match=?", (match,)).fetchall()[0]
         cur.execute("UPDATE config SET value=0 WHERE key='recording'")
@@ -319,12 +340,12 @@ class main_server(object):
         if save == "0":
             os.remove(temp_filename)
         else:
-            destination = video_dir + os.path.sep + event + \
-                "_m" + str(match).zfill(3) + " (" + ",".join([str(x) for x in teams]) + ").mp4"
+            destination = video_dir + os.path.sep + match + \
+                " (" + ",".join([str(x) for x in teams]) + ").mp4"
             cur.execute(
-                "DELETE FROM videos WHERE match=? AND event=?", (match, event))
-            cur.execute("INSERT INTO videos(event,match,filename,b1,b2,b3,r1,r2,r3) VALUES (?,?,?,?,?,?,?,?,?)",
-                        (event, match, destination) + tuple(teams))
+                "DELETE FROM videos WHERE match=?", (match,))
+            cur.execute("INSERT INTO videos(event,match,match_sortid,filename,b1,b2,b3,r1,r2,r3) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (event, match, sortid, destination) + tuple(teams))
 
             os.rename(temp_filename, destination)
 
@@ -333,7 +354,7 @@ class main_server(object):
         return
 
     @cherrypy.expose
-    def set_event(event="2017nhgrs", source="tba"):
+    def set_event(event="2017nhgrs", source="tba", practice="0", playoffs="0"):
         conn = sql.connect(db_path)
         cur = conn.cursor()
         cur.execute("UPDATE config SET value=? WHERE key='event'", (event,))
@@ -359,7 +380,7 @@ class main_server(object):
                     r2 = match_raw.alliances["red"]["team_keys"][1][3:]
                     r3 = match_raw.alliances["red"]["team_keys"][2][3:]
                     matches.append(
-                        [match_raw.match_number, b1, b2, b3, r1, r2, r3])
+                        [match_raw.key, match_raw.match_number, 0, b1, b2, b3, r1, r2, r3])
         else:
             # Get from csv
             try:
@@ -367,7 +388,10 @@ class main_server(object):
             except:
                 conn.close()
                 return "Failed to open csv file."
-            matches = [row.split(",") for row in csv.read().split("\n")]
+            matches = [row.split(",") for row in csv.read().split("\n")][:-1]
+            for i in range(len(matches)):
+                matches[i].insert(1, i + 1)
+                matches[i].insert(2, 0)
             try:
                 x = 0
             except:
@@ -375,13 +399,52 @@ class main_server(object):
                 return "Failed to parse csv file."
             csv.close()
 
+        # Add practice matches
+        if int(practice) != 0:
+            for i in range(int(practice)):
+                match_number = int(practice) - i
+                matches.insert(
+                    0, [event + "_pm" + str(match_number), (i + 1) * -1, 1, 0, 0, 0, 0, 0, 0])
+
+        # Add playoff matches
+        playoff_matches = [
+            "qf1m1",
+            "qf2m1",
+            "qf3m1",
+            "qf4m1",
+            "qf1m2",
+            "qf2m2",
+            "qf3m2",
+            "qf4m2",
+            "qf1m3",
+            "qf2m3",
+            "qf3m3",
+            "qf4m3",
+            "sf1m1",
+            "sf2m1",
+            "sf1m2",
+            "sf2m2",
+            "sf1m3",
+            "sf2m3",
+            "f1m1",
+            "f1m2",
+            "f1m3"
+        ]
+        if playoffs == "1":
+            sortid = 999
+            for match_code in playoff_matches:
+                sortid += 1
+                matches.append([event + "_" + match_code,
+                                sortid, 1, 0, 0, 0, 0, 0, 0])
+
+        # Save to db
         cur.execute("DELETE FROM schedule")
         cur.execute(
             "UPDATE config SET value=? WHERE key='event_cached'", (event,))
         for match in matches:
             try:
                 cur.execute(
-                    "INSERT INTO schedule(match,b1,b2,b3,r1,r2,r3) VALUES (?,?,?,?,?,?,?)", tuple(match))
+                    "INSERT INTO schedule(match,match_sortid,editable,b1,b2,b3,r1,r2,r3) VALUES (?,?,?,?,?,?,?,?,?)", tuple(match))
             except:
                 conn.close()
                 return "Failed to save schedule data."
@@ -399,25 +462,40 @@ class main_server(object):
             "SELECT value FROM config WHERE key='event'").fetchall()[0][0]
         matches = [{
             "match": x[0],
-            "teams": x[1:7],
+            "editable": x[1],
+            "teams": x[2:8],
             "status": "unknown"
-        } for x in cur.execute("SELECT * FROM schedule ORDER BY match").fetchall()]
+        } for x in cur.execute("SELECT match,editable,b1,b2,b3,r1,r2,r3 FROM schedule ORDER BY match_sortid").fetchall()]
 
         for i in range(len(matches)):
             video_rows = cur.execute(
-                "SELECT * FROM videos WHERE event=? AND match=?", (event, matches[i]["match"])).fetchall()
+                "SELECT * FROM videos WHERE match=?", (matches[i]["match"],)).fetchall()
             if len(video_rows) < 1:
                 matches[i]["status"] = "waiting"
             else:
                 matches[i]["status"] = "finished"
 
-        recording = int(cur.execute(
-            "SELECT value FROM config WHERE key='recording'").fetchall()[0][0])
-        if recording != 0:
-            matches[recording - 1]["status"] = "recording"
+        recording = cur.execute(
+            "SELECT value FROM config WHERE key='recording'").fetchall()[0][0]
+        if recording != "0":
+            for i in matches:
+                if i["match"] == recording:
+                    i["status"] = "recording"
 
         conn.close()
         return json.dumps(matches)
+
+    @cherrypy.expose
+    def update_teams(match, b1, b2, b3, r1, r2, r3):
+        conn = sql.connect(db_path)
+        cur = conn.cursor()
+
+        cur.execute("UPDATE schedule SET b1=?, b2=?, b3=?, r1=?, r2=?, r3=? WHERE match=?",
+                    (b1, b2, b3, r1, r2, r3, match))
+
+        conn.commit()
+        conn.close()
+        return
 
     @cherrypy.expose
     def videos():
@@ -448,7 +526,7 @@ class main_server(object):
         <button style="margin-top: 5px; margin-bottom: 5px;" onclick="javascript:unmount()">
             Eject USB drive
         </button>
-        
+
         <div style="font-style: italic;">
             <span id="usbUsed">?</span> GB/<span id="usbTotal">?</span> GB
         </div>
@@ -465,7 +543,7 @@ class main_server(object):
             </tr>
         </table>
     </div>
-    
+
     Event:
     <select id="eventSelect">
         <option>
@@ -483,9 +561,6 @@ class main_server(object):
 
     <table id="matchTable" style="margin-top: 10px;">
         <tr>
-            <th>
-                Event
-            </th>
             <th>
                 Match
             </th>
@@ -537,17 +612,16 @@ class main_server(object):
         if team == "0":
             team = "%"
         data = cur.execute(
-            "SELECT * FROM videos WHERE event LIKE ? AND (b1 LIKE ? OR b2 LIKE ? OR b3 LIKE ? OR r1 LIKE ? OR r2 LIKE ? OR r3 LIKE ?) ORDER BY event, match", (event, team, team, team, team, team, team)).fetchall()
+            "SELECT match,filename,b1,b2,b3,r1,r2,r3 FROM videos WHERE event LIKE ? AND (b1 LIKE ? OR b2 LIKE ? OR b3 LIKE ? OR r1 LIKE ? OR r2 LIKE ? OR r3 LIKE ?) ORDER BY event, match_sortid", (event, team, team, team, team, team, team)).fetchall()
         data = [{
-            "event": x[0],
-            "match": x[1],
-            "filename": x[2],
-            "b1": x[3],
-            "b2": x[4],
-            "b3": x[5],
-            "r1": x[6],
-            "r2": x[7],
-            "r3": x[8]
+            "match": x[0],
+            "filename": x[1],
+            "b1": x[2],
+            "b2": x[3],
+            "b3": x[4],
+            "r1": x[5],
+            "r2": x[6],
+            "r3": x[7]
         } for x in data]
 
         conn.close()

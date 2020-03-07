@@ -70,6 +70,13 @@ function getMatches() {
                 var cell = document.createElement("TD")
                 cell.classList.add("data")
                 cell.classList.add(f < 3 ? "blue" : "red")
+                cell.contentEditable = matches[i]["editable"] == 1
+                function updateTeamsFunc(match) {
+                    return function () {
+                        updateTeams(match)
+                    }
+                }
+                cell.addEventListener("input", updateTeamsFunc(matches[i]["match"]))
                 cell.innerHTML = matches[i]["teams"][f]
                 row.appendChild(cell)
             }
@@ -126,6 +133,7 @@ function getMatches() {
             } else if (matches[i]["status"] == "recording") {
                 buttonCell.children[1].hidden = false
                 recording = true
+                startTime = new Date().getTime()
                 flashesDone = 0
             } else if (matches[i]["status"] == "finished") {
                 buttonCell.firstChild.hidden = false
@@ -143,13 +151,35 @@ getMatches()
 // Load schedule    
 function loadSchedule(src) {
     event = document.getElementById("event").value
+    practice = Number(document.getElementById("practiceMatches").value)
+    playoffs = document.getElementById("includePlayoffs").checked ? "1" : "0"
     request("POST", "/set_event", function (data) {
         alert(data)
         getMatches()
     }, {
         event: event,
+        practice: practice,
+        playoffs: playoffs,
         source: src
     }, "Failed to contact server.")
+}
+
+// Update teams for one match
+function updateTeams(match) {
+    for (var i = 0; i < matches.length; i++) {
+        if (matches[i]["match"] == match) {
+            var row = matches[i]["row"]
+        }
+    }
+    request("PUT", "/update_teams", function () { }, {
+        match: match,
+        b1: row.children[1].innerHTML,
+        b2: row.children[2].innerHTML,
+        b3: row.children[3].innerHTML,
+        r1: row.children[4].innerHTML,
+        r2: row.children[5].innerHTML,
+        r3: row.children[6].innerHTML
+    }, "Failed to update teams.")
 }
 
 // Start recording
@@ -157,12 +187,17 @@ function startRecording(match) {
     if (recording) {
         alert("You cannot record multiple matches at once.")
     } else {
-        matches[match - 1]["row"].lastChild.firstChild.hidden = true
-        matches[match - 1]["row"].lastChild.lastChild.hidden = false
+        for (var i = 0; i < matches.length; i++) {
+            if (matches[i]["match"] == match) {
+                var row = matches[i]["row"]
+            }
+        }
+        row.lastChild.firstChild.hidden = true
+        row.lastChild.lastChild.hidden = false
         request("POST", "/start_recording", function () {
             recording = true
-            matches[match - 1]["row"].lastChild.children[1].hidden = false
-            matches[match - 1]["row"].lastChild.lastChild.hidden = true
+            row.lastChild.children[1].hidden = false
+            row.lastChild.lastChild.hidden = true
             flashesDone = 0
             startTime = new Date().getTime()
         }, {
@@ -175,14 +210,19 @@ function startRecording(match) {
 // Stop recording
 function stopRecording(match, save) {
     if (confirm(save ? "Are you sure you want to stop recording?" : "Are you sure you want to cancel recording? It will be lost forever.")) {
-        matches[match - 1]["row"].lastChild.lastChild.hidden = false
-        matches[match - 1]["row"].lastChild.children[1].hidden = true
+        for (var i = 0; i < matches.length; i++) {
+            if (matches[i]["match"] == match) {
+                var row = matches[i]["row"]
+            }
+        }
+        row.lastChild.lastChild.hidden = false
+        row.lastChild.children[1].hidden = true
         request("POST", "/stop_recording", function () {
             recording = false
-            matches[match - 1]["row"].lastChild.lastChild.hidden = true
-            matches[match - 1]["row"].lastChild.firstChild.hidden = false
+            row.lastChild.lastChild.hidden = true
+            row.lastChild.firstChild.hidden = false
             if (save) {
-                matches[match - 1]["row"].lastChild.firstChild.lastChild.hidden = false
+                row.lastChild.firstChild.lastChild.hidden = false
             }
         }, {
             save: save ? "1" : "0"
