@@ -45,11 +45,20 @@ class GstreamerRecorder():
         self.height = 1080
 
     def __construct_command(self):
+
         self.device = find_device(self.device_name)
         self.idle_command = "gst-launch-1.0 -e v4l2src device=" + self.device + " ! 'video/x-raw,width=" + str(self.width) + ",height=" + str(
             self.height) + "' ! videorate ! 'video/x-raw,framerate=10/1' ! videoconvert ! jpegenc ! multifilesink location=frame.jpg"
-        self.record_command = "gst-launch-1.0 -e v4l2src device=" + self.device + " ! 'video/x-raw,width=" + str(self.width) + ",height=" + str(
-            self.height) + "' ! tee name=t ! queue ! videoconvert ! omxh264enc ! h264parse ! mp4mux ! filesink location=$FILENAME t. ! queue ! videorate ! 'video/x-raw,framerate=4/1' ! videoconvert ! jpegenc ! multifilesink location=frame.jpg"
+        # self.record_command = "gst-launch-1.0 -e v4l2src device=" + self.device + " ! 'video/x-raw,width=" + str(self.width) + ",height=" + str(
+        #     self.height) + ",framerate=30/1' ! tee name=t ! queue ! videoconvert ! nvh264enc ! h264parse ! mp4mux ! filesink location=$FILENAME t. ! queue ! videorate ! 'video/x-raw,framerate=4/1' ! videoconvert ! jpegenc ! multifilesink location=frame.jpg"
+
+        # self.record_command = "gst-launch-1.0 -e v4l2src device=" + self.device + " ! 'image/jpeg,width=" + str(self.width) + ",height=" + str(
+        #     self.height) + ",framerate=30/1' ! jpegdec ! videoconvert ! nvh264enc ! h264parse ! mp4mux ! filesink location=$FILENAME "
+
+        self.record_command = "gst-launch-1.0 -e v4l2src device=" + self.device + " ! 'image/jpeg,width=" + str(self.width) + ",height=" + str(
+            self.height) + ",framerate=30/1' ! tee name=t ! queue ! jpegdec ! videoconvert ! nvh264enc ! h264parse ! mp4mux ! filesink location=$FILENAME t. ! queue ! videorate ! 'image/jpeg,framerate=4/1' ! multifilesink location=frame.jpg"
+
+
 
     def start(self, mode, filename=None):
         if self.active:
@@ -58,6 +67,7 @@ class GstreamerRecorder():
         self.filename = filename
         self.__construct_command()
         if mode == RecorderMode.RECORD:
+            print("Filename " + filename)
             command = self.record_command.replace("$FILENAME", filename)
         else:
             command = self.idle_command

@@ -17,9 +17,11 @@ db_path = "videos.db"
 video_dir = "saved_videos"
 usb_paths = {
     "/transfer-black/": "black",
-    "/transfer-blue/": "blue",
+    "/transfer-darkblue/": "darkblue",
+    "/transfer-skyblue/": "skyblue",
     "/transfer-gray/": "gray",
     "/transfer-green/": "green",
+    "/transfer-purple/": "purple",
     "/transfer-red/": "red"
 }
 schedule_csv = "schedule.csv"
